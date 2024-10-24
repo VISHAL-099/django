@@ -1,0 +1,85 @@
+from PyPDF2 import PdfReader, PdfWriter
+from reportlab.pdfgen import canvas
+from io import BytesIO
+from PIL import Image
+import os
+import tempfile
+
+
+# Function to create a transparent stamp image overlay
+def create_stamp_with_transparency(stamp_image_path, page_width, page_height):
+    # Open the stamp image and convert to RGBA (supports transparency)
+    stamp_image = Image.open(stamp_image_path).convert("RGBA")
+
+    # Remove white background (convert to transparent)
+    datas = stamp_image.getdata()
+
+    new_data = []
+    for item in datas:
+        # Change all white (also shades of whites)
+        # pixels to transparent
+        if item[0] > 200 and item[1] > 200 and item[2] > 200:  # threshold for white
+            new_data.append((255, 255, 255, 0))  # Change to transparent
+        else:
+            new_data.append(item)
+
+    stamp_image.putdata(new_data)
+
+    # Create a temporary file to save the PNG image
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
+        # Save the image as PNG to preserve transparency
+        stamp_image.save(temp_file, format='PNG')
+        temp_file_path = temp_file.name
+
+    # Create a canvas for the PDF page
+    packet = BytesIO()
+    page_width = float(page_width)
+    page_height = float(page_height)
+    can = canvas.Canvas(packet, pagesize=(page_width, page_height))
+
+    # Position of the stamp on the PDF page
+    x_position = page_width - 140  # Adjust the position as needed
+    y_position = page_height - 750
+
+    # Use the temporary PNG image (with transparency) on the PDF
+    can.drawImage(temp_file_path, x_position, y_position, width=100, height=100, mask='auto')
+    can.save()
+
+    # Clean up the temporary file
+    os.remove(temp_file_path)
+
+    packet.seek(0)
+    return packet
+
+
+# Function to add stamp to each page of the PDF
+def add_stamp_to_pdf(input_pdf_path, output_pdf_path, stamp_image_path):
+    reader = PdfReader(input_pdf_path)
+    writer = PdfWriter()
+
+    for page_num in range(len(reader.pages)):
+        page = reader.pages[page_num]
+
+        # Get page size to create stamp of the right size
+        page_width = page.mediabox.width
+        page_height = page.mediabox.height
+
+        # Create a transparent stamp overlay for the current page
+        stamp = PdfReader(create_stamp_with_transparency(stamp_image_path, page_width, page_height))
+        stamp_page = stamp.pages[0]
+
+        # Merge the stamp onto the page
+        page.merge_page(stamp_page)
+        writer.add_page(page)
+
+    # Write the output PDF
+    with open(output_pdf_path, "wb") as output_file:
+        writer.write(output_file)
+
+
+# Usage
+input_pdf = "C:/Users/your_file path.pdf"  # Path to your original PDF file
+output_pdf = "C:/Users/output_path.pdf"  # Output PDF with the stamp
+stamp_image = "C:/Users/Image.jpg"  # Path to your stamp image
+
+add_stamp_to_pdf(input_pdf, output_pdf, stamp_image)
